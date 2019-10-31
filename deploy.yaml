@@ -1,0 +1,77 @@
+apiVersion: storage.k8s.io/v1beta1
+kind: CSIDriver
+metadata:
+  name: csi.onlineconf.mail.ru
+spec:
+  podInfoOnMount: false
+  attachRequired: false
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: onlineconf-csi-driver
+  labels:
+    app: onlineconf-csi-driver
+spec:
+  selector:
+    matchLabels:
+      app: onlineconf-csi-driver
+  template:
+    metadata:
+      labels:
+        app: onlineconf-csi-driver
+    spec:
+      containers:
+      - name: node-driver-registrar
+        image: quay.io/k8scsi/csi-node-driver-registrar:v1.2.0
+        args:
+        - "--csi-address=/csi/csi.sock"
+        - "--kubelet-registration-path=/var/lib/kubelet/plugins/csi.onlineconf.mail.ru/csi.sock"
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: registration-dir
+          mountPath: /registration
+      - name: onlineconf-csi-driver
+        image: onlineconf/onlineconf-csi-driver:latest
+        args:
+        - "--endpoint=$(CSI_ENDPOINT)"
+        - "--node=$(NODE_NAME)"
+        - "--state=/csi/state.json"
+        env:
+        - name: CSI_ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["SYS_ADMIN"]
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: csi-dir
+          mountPath: /var/lib/kubelet/plugins/kubernetes.io/csi
+          mountPropagation: "Bidirectional"
+        - name: pods-dir
+          mountPath: /var/lib/kubelet/pods
+          mountPropagation: "Bidirectional"
+      volumes:
+      - name: socket-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/csi.onlineconf.mail.ru
+          type: DirectoryOrCreate
+      - name: csi-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/kubernetes.io/csi
+          type: Directory
+      - name: pods-dir
+        hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: Directory

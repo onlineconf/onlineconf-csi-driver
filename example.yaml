@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: example-onlineconf-secret
+data:
+  "username": ...
+  "password": ...
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: example-onlineconf-volume
+spec:
+  volumeMode: Filesystem
+  accessModes:
+    - ReadOnlyMany
+  capacity:
+    storage: 1Gi
+  csi:
+    driver: csi.onlineconf.mail.ru
+    volumeHandle: example-onlineconf-volume
+    readOnly: true
+    volumeAttributes:
+      uri: http://onlineconf.example.com
+    nodeStageSecretRef:
+      name: example-onlineconf-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: example-onlineconf-volume-claim
+spec:
+  accessModes:
+    - ReadOnlyMany
+  volumeMode: Filesystem
+  volumeName: example-onlineconf-volume
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      ...
+      containers:
+      - name: ...
+        ...
+        volumeMounts:
+        - name: onlineconf-volume
+          mountPath: /usr/local/etc/onlineconf
+          readOnly: true
+      volumes:
+      - name: onlineconf-volume
+        persistentVolumeClaim:
+          claimName: example-onlineconf-volume-claim
