@@ -11,10 +11,11 @@ type state struct {
 }
 
 type updaterState struct {
-	DataDir  string
-	URI      string
-	Username string
-	Password string
+	DataDir   string
+	URI       string
+	Username  string
+	Password  string
+	Variables map[string]string
 }
 
 func openState(path string) (*state, error) {

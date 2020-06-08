@@ -92,11 +92,20 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.Internal, "failed to mkdir StagingTargetPath")
 	}
 
+	volumeContext := req.GetVolumeContext()
+	vars := make(map[string]string, len(volumeContext))
+	for k, v := range volumeContext {
+		if strings.HasPrefix(k, "${") && strings.HasSuffix(k, "}") {
+			vars[k[2:len(k)-1]] = v
+		}
+	}
+
 	state := updaterState{
-		DataDir:  stage,
-		URI:      req.GetVolumeContext()["uri"],
-		Username: req.GetSecrets()["username"],
-		Password: req.GetSecrets()["password"],
+		DataDir:   stage,
+		URI:       volumeContext["uri"],
+		Username:  req.GetSecrets()["username"],
+		Password:  req.GetSecrets()["password"],
+		Variables: vars,
 	}
 	if err := ns.runUpdater(volumeId, state, false); err != nil {
 		log.Error().Err(err).Msg("failed to run updater")
@@ -247,7 +256,8 @@ func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bo
 			Username: state.Username,
 			Password: state.Password,
 		},
-		DataDir: state.DataDir,
+		DataDir:   state.DataDir,
+		Variables: state.Variables,
 	})
 	if err := u.Update(); err != nil {
 		if !restore {
