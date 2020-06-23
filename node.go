@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,8 +69,37 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	if stage == "" {
 		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath missing in request")
 	}
-	if req.GetVolumeCapability() == nil {
+
+	capability := req.GetVolumeCapability()
+	if capability == nil {
 		return nil, status.Error(codes.InvalidArgument, "VolumeCapability missing in request")
+	}
+
+	if mode := capability.GetAccessMode().GetMode(); mode != csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY &&
+		mode != csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY {
+		return nil, status.Error(codes.InvalidArgument, "unsupported access mode")
+	}
+
+	mount := capability.GetMount()
+	if mount == nil {
+		return nil, status.Error(codes.InvalidArgument, "AccessType must be mount")
+	}
+	if mount.GetFsType() != "" {
+		return nil, status.Error(codes.InvalidArgument, "unsupported filesystem type")
+	}
+
+	chmod := false
+	var mode os.FileMode
+	for _, flag := range mount.GetMountFlags() {
+		if strings.HasPrefix(flag, "mode=") {
+			val, err := strconv.ParseUint(flag[5:], 8, 12)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to parse mode")
+				return nil, status.Error(codes.InvalidArgument, "invalid mount flags")
+			}
+			chmod = true
+			mode = os.FileMode(val)
+		}
 	}
 
 	ns.m.Lock()
@@ -87,9 +117,16 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.InvalidArgument, "another volume is already staged to requested StagingTargetPath")
 	}
 
-	if err := os.MkdirAll(stage, 0755); err != nil {
+	if err := os.MkdirAll(stage, 0750); err != nil {
 		log.Error().Err(err).Msg("failed to mkdir StagingTargetPath")
 		return nil, status.Error(codes.Internal, "failed to mkdir StagingTargetPath")
+	}
+
+	if chmod {
+		if err := os.Chmod(stage, mode); err != nil {
+			log.Error().Err(err).Msg("failed to chmod StagingTargetPath")
+			return nil, status.Error(codes.Internal, "failed to chmod StagingTargetPath")
+		}
 	}
 
 	volumeContext := req.GetVolumeContext()
@@ -193,7 +230,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 	}
 
-	if err := os.MkdirAll(target, 0755); err != nil {
+	if err := os.MkdirAll(target, 0750); err != nil {
 		log.Error().Err(err).Msg("failed to mkdir")
 		return nil, status.Error(codes.Internal, "failed to mkdir TargetPath")
 	}
