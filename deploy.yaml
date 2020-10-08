@@ -10,6 +10,7 @@ kind: DaemonSet
 apiVersion: apps/v1
 metadata:
   name: onlineconf-csi-driver
+  namespace: kube-system
   labels:
     app: onlineconf-csi-driver
 spec:
@@ -21,6 +22,7 @@ spec:
       labels:
         app: onlineconf-csi-driver
     spec:
+      priorityClassName: system-node-critical
       containers:
       - name: node-driver-registrar
         image: quay.io/k8scsi/csi-node-driver-registrar:v1.2.0
@@ -75,3 +77,96 @@ spec:
         hostPath:
           path: /var/lib/kubelet/plugins_registry
           type: Directory
+---
+# Controller is required for dynamic provisioning only
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: onlineconf-csi-driver-controller
+  namespace: kube-system
+  labels:
+    app: onlineconf-csi-driver-controller
+spec:
+  selector:
+    matchLabels:
+      app: onlineconf-csi-driver-controller
+  template:
+    metadata:
+      labels:
+        app: onlineconf-csi-driver-controller
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: onlineconf-csi-driver
+      containers:
+      - name: csi-provisioner
+        image: quay.io/k8scsi/csi-provisioner:v1.6.0
+        args:
+        - "--csi-address=/csi/csi.sock"
+        - "--volume-name-prefix=onlineconf"
+        - "--extra-create-metadata"
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+      - name: onlineconf-csi-driver
+        image: onlineconf/onlineconf-csi-driver:latest
+        args:
+        - "--endpoint=$(CSI_ENDPOINT)"
+        - "--controller"
+        env:
+        - name: CSI_ENDPOINT
+          value: unix:///csi/csi.sock
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+      volumes:
+      - name: socket-dir
+        emptyDir:
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: onlineconf-csi-driver
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: onlineconf-csi-driver
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: onlineconf-csi-driver
+subjects:
+  - kind: ServiceAccount
+    name: onlineconf-csi-driver
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: onlineconf-csi-driver
+  apiGroup: rbac.authorization.k8s.io

@@ -1,41 +1,33 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: onlineconf
+provisioner: csi.onlineconf.mail.ru
+mountOptions:
+  - mode=755
+parameters:
+  csi.storage.k8s.io/node-stage-secret-name: ${pvc.name}
+  csi.storage.k8s.io/node-stage-secret-namespace: ${pvc.namespace}
+  uri: http://onlineconf.example.com
+  ${namespace}: ${pvc.namespace}
+---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: example-onlineconf-secret
+  name: example-onlineconf-volume-claim
 data:
   "username": ...
   "password": ...
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: example-onlineconf-volume
-spec:
-  volumeMode: Filesystem
-  mountOptions:
-    - mode=755
-  accessModes:
-    - ReadOnlyMany
-  capacity:
-    storage: 1Gi
-  csi:
-    driver: csi.onlineconf.mail.ru
-    volumeHandle: example-onlineconf-volume
-    readOnly: true
-    volumeAttributes:
-      uri: http://onlineconf.example.com
-    nodeStageSecretRef:
-      name: example-onlineconf-secret
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: example-onlineconf-volume-claim
 spec:
+  storageClassName: onlineconf
   accessModes:
     - ReadOnlyMany
   volumeMode: Filesystem
-  volumeName: example-onlineconf-volume
   resources:
     requests:
       storage: 1Gi
