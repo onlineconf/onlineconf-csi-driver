@@ -1,0 +1,17 @@
+version: '3'
+services:
+  onlineconf-csi-driver-test:
+    build:
+      context: .
+      dockerfile: Dockerfile-test
+    image: onlineconf-csi-driver-test
+    environment:
+      ONLINECONF_URI: http://onlineconf-admin
+      ONLINECONF_USERNAME: gopher
+      ONLINECONF_PASSWORD: gopher
+    cap_add:
+      - SYS_ADMIN
+networks:
+  default:
+    external:
+      name: admin_default

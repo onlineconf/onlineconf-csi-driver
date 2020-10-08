@@ -1,0 +1,9 @@
+FROM golang
+
+WORKDIR /go/src/github.com/onlineconf/onlineconf-csi-driver
+
+COPY go.* ./
+RUN go mod download
+
+COPY *.go ./
+ENTRYPOINT ["go", "test"]
