@@ -18,7 +18,7 @@ type updaterState struct {
 	Variables map[string]string
 }
 
-func openState(path string) (*state, error) {
+func readState(path string) (*state, error) {
 	s := &state{
 		path:     path,
 		Updaters: make(map[string]updaterState),

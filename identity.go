@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/rs/zerolog/log"
 )
 
 type identityServer struct{}
@@ -14,7 +13,6 @@ func newIdentityServer() *identityServer {
 }
 
 func (ids *identityServer) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
-	log.Debug().Msg("GetPluginInfo")
 	return &csi.GetPluginInfoResponse{
 		Name:          "csi.onlineconf.mail.ru",
 		VendorVersion: version,
@@ -22,11 +20,19 @@ func (ids *identityServer) GetPluginInfo(ctx context.Context, req *csi.GetPlugin
 }
 
 func (ids *identityServer) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
-	log.Debug().Msg("GetPluginCapabilities")
-	return &csi.GetPluginCapabilitiesResponse{Capabilities: []*csi.PluginCapability{}}, nil
+	return &csi.GetPluginCapabilitiesResponse{
+		Capabilities: []*csi.PluginCapability{
+			{
+				Type: &csi.PluginCapability_Service_{
+					Service: &csi.PluginCapability_Service{
+						Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
+					},
+				},
+			},
+		},
+	}, nil
 }
 
 func (ids *identityServer) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
-	log.Debug().Msg("Probe")
 	return &csi.ProbeResponse{}, nil
 }

@@ -1,15 +1,15 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/url"
 	"os"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-
-	"google.golang.org/grpc"
-
+	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
 )
 
 type driver struct {
@@ -17,20 +17,29 @@ type driver struct {
 	ns     *nodeServer
 }
 
-func newDriver(nodeId string, state *state) *driver {
-	ids := newIdentityServer()
-	ns := newNodeServer(nodeId, state)
+func newDriver() *driver {
+	server := grpc.NewServer(grpc.ChainUnaryInterceptor(loggingInterceptor))
+	csi.RegisterIdentityServer(server, newIdentityServer())
+	return &driver{server: server}
+}
 
-	server := grpc.NewServer()
-	csi.RegisterIdentityServer(server, ids)
-	csi.RegisterNodeServer(server, ns)
+func (d *driver) initControllerServer() {
+	csi.RegisterControllerServer(d.server, newControllerServer())
+}
 
-	return &driver{server, ns}
+func (d *driver) initNodeServer(id, stateFile string) (err error) {
+	d.ns, err = newNodeServer(id, stateFile)
+	if err == nil {
+		csi.RegisterNodeServer(d.server, d.ns)
+	}
+	return
 }
 
 func (d *driver) run(endpoint string) {
-	d.ns.start()
-	defer d.ns.stop()
+	if d.ns != nil {
+		d.ns.start()
+		defer d.ns.stop()
+	}
 
 	uri, err := url.Parse(endpoint)
 	if err != nil {
@@ -56,4 +65,13 @@ func (d *driver) run(endpoint string) {
 
 func (d *driver) stop() {
 	d.server.Stop()
+}
+
+func loggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	resp, err = handler(ctx, req)
+	log.Info().Str("method", info.FullMethod).
+		Str("request", protosanitizer.StripSecrets(req).String()).
+		Str("response", protosanitizer.StripSecrets(resp).String()).
+		Err(err).Msg("request finished")
+	return
 }

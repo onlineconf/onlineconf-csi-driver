@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,28 +22,30 @@ type updaterInfo struct {
 }
 
 type nodeServer struct {
+	csi.UnimplementedNodeServer
 	id       string
 	m        sync.Mutex
 	state    *state
 	updaters map[string]*updaterInfo
 }
 
-func newNodeServer(id string, state *state) *nodeServer {
-	ns := &nodeServer{
+func newNodeServer(id string, stateFile string) (*nodeServer, error) {
+	state, err := readState(stateFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open state file: %w", err)
+	}
+	return &nodeServer{
 		id:       id,
 		state:    state,
 		updaters: make(map[string]*updaterInfo),
-	}
-	return ns
+	}, nil
 }
 
 func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-	log.Debug().Msg("NodeGetInfo")
 	return &csi.NodeGetInfoResponse{NodeId: ns.id}, nil
 }
 
 func (ns *nodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	log.Debug().Msg("NodeGetCapabilities")
 	return &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
 			{
@@ -61,8 +63,6 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	volumeId := req.GetVolumeId()
 	stage := req.GetStagingTargetPath()
 
-	log.Debug().Str("volume_id", volumeId).Str("staging_target_path", stage).Msg("NodeStageVolume")
-
 	if volumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId missing in request")
 	}
@@ -70,36 +70,13 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.InvalidArgument, "StagingTargetPath missing in request")
 	}
 
-	capability := req.GetVolumeCapability()
-	if capability == nil {
-		return nil, status.Error(codes.InvalidArgument, "VolumeCapability missing in request")
+	volCap, err := readVolumeCapability(req.GetVolumeCapability())
+	if err != nil {
+		return nil, err
 	}
-
-	if mode := capability.GetAccessMode().GetMode(); mode != csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY &&
-		mode != csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY {
-		return nil, status.Error(codes.InvalidArgument, "unsupported access mode")
-	}
-
-	mount := capability.GetMount()
-	if mount == nil {
-		return nil, status.Error(codes.InvalidArgument, "AccessType must be mount")
-	}
-	if mount.GetFsType() != "" {
-		return nil, status.Error(codes.InvalidArgument, "unsupported filesystem type")
-	}
-
-	chmod := false
-	var mode os.FileMode
-	for _, flag := range mount.GetMountFlags() {
-		if strings.HasPrefix(flag, "mode=") {
-			val, err := strconv.ParseUint(flag[5:], 8, 12)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to parse mode")
-				return nil, status.Error(codes.InvalidArgument, "invalid mount flags")
-			}
-			chmod = true
-			mode = os.FileMode(val)
-		}
+	volCtx, err := readVolumeContext(req.GetVolumeContext())
+	if err != nil {
+		return nil, err
 	}
 
 	ns.m.Lock()
@@ -122,27 +99,19 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.Internal, "failed to mkdir StagingTargetPath")
 	}
 
-	if chmod {
-		if err := os.Chmod(stage, mode); err != nil {
+	if volCap.chmod {
+		if err := os.Chmod(stage, volCap.mode); err != nil {
 			log.Error().Err(err).Msg("failed to chmod StagingTargetPath")
 			return nil, status.Error(codes.Internal, "failed to chmod StagingTargetPath")
 		}
 	}
 
-	volumeContext := req.GetVolumeContext()
-	vars := make(map[string]string, len(volumeContext))
-	for k, v := range volumeContext {
-		if strings.HasPrefix(k, "${") && strings.HasSuffix(k, "}") {
-			vars[k[2:len(k)-1]] = v
-		}
-	}
-
 	state := updaterState{
 		DataDir:   stage,
-		URI:       volumeContext["uri"],
+		URI:       volCtx.uri,
 		Username:  req.GetSecrets()["username"],
 		Password:  req.GetSecrets()["password"],
-		Variables: vars,
+		Variables: volCtx.vars,
 	}
 	if err := ns.runUpdater(volumeId, state, false); err != nil {
 		log.Error().Err(err).Msg("failed to run updater")
@@ -157,8 +126,6 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	volumeId := req.GetVolumeId()
 	stage := req.GetStagingTargetPath()
-
-	log.Debug().Str("volume_id", volumeId).Str("staging_target_path", stage).Msg("NodeUnstageVolume")
 
 	if volumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId missing in request")
@@ -194,8 +161,6 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	volumeId := req.GetVolumeId()
 	target := req.GetTargetPath()
 	stage := req.GetStagingTargetPath()
-
-	log.Debug().Str("volume_id", volumeId).Str("target_path", target).Str("staging_target_path", stage).Msg("NodePublishVolume")
 
 	if volumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId missing in request")
@@ -252,8 +217,6 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	volumeId := req.GetVolumeId()
 	target := req.GetTargetPath()
 
-	log.Debug().Str("volume_id", volumeId).Str("target_path", target).Msg("NodeUnpublishVolume")
-
 	if volumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "VolumeId missing in request")
 	}
@@ -275,14 +238,6 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	}
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
-}
-
-func (ns *nodeServer) NodeGetVolumeStats(ctx context.Context, in *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
-}
-
-func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bool) error {

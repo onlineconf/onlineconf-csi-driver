@@ -10,20 +10,25 @@ import (
 )
 
 var (
-	endpoint  = flag.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
-	nodeId    = flag.String("node", "", "node id")
-	stateFile = flag.String("state", "/var/lib/onlineconf-csi-driver/state.json", "state file")
+	endpoint   = flag.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
+	controller = flag.Bool("controller", false, "serve Controller Service RPC")
+	nodeId     = flag.String("node", "", "node id (serve Node Service RPC)")
+	stateFile  = flag.String("state", "/var/lib/onlineconf-csi-driver/state.json", "state file (used by Node Service only)")
 )
 
 func main() {
 	flag.Parse()
 
-	state, err := openState(*stateFile)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open state file")
+	driver := newDriver()
+	if *controller {
+		driver.initControllerServer()
 	}
-
-	driver := newDriver(*nodeId, state)
+	if *nodeId != "" {
+		err := driver.initNodeServer(*nodeId, *stateFile)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init node server")
+		}
+	}
 
 	log.Info().Msg("onlineconf-csi-driver started")
 	sigC := make(chan os.Signal, 1)
