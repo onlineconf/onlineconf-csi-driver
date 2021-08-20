@@ -242,7 +242,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 }
 
 func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bool) error {
-	log.Info().Str("volume_id", volumeId).Str("updateInterval ", state.UpdateInterval.String()).Msg("starting updater")
+	log.Info().Str("volume_id", volumeId).Dur("updateInterval", state.UpdateInterval).Msg("starting updater")
 
 	u := updater.NewUpdater(updater.UpdaterConfig{
 		Admin: updater.AdminConfig{

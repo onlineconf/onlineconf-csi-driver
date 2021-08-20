@@ -27,6 +27,7 @@ See [example manifest (static)](./example.yaml) for more details.
   * `readOnly`: `true` (OnlineConf volumes are always read only)
   * `volumeAttributes`:
     * `uri` - URI of *onlineconf-admin* instance
+    * `updateInterval` - polling interval for requests to *onlineconf-admin* instance (default: "10s")
     * `${any_variable_name}` - any variables you want to interpolate into OnlineConf template values
   * `volumeHandle` - required by Kubernetes
 * `mountOptions` - optional, supported options:
