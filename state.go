@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"time"
 )
 
 type state struct {
@@ -11,11 +12,12 @@ type state struct {
 }
 
 type updaterState struct {
-	DataDir   string
-	URI       string
-	Username  string
-	Password  string
-	Variables map[string]string
+	DataDir        string
+	URI            string
+	Username       string
+	Password       string
+	UpdateInterval time.Duration
+	Variables      map[string]string
 }
 
 func readState(path string) (*state, error) {

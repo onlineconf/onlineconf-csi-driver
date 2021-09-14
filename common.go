@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/rs/zerolog/log"
@@ -53,8 +55,9 @@ func readVolumeCapability(capability *csi.VolumeCapability) (*volumeCapability, 
 }
 
 type volumeContext struct {
-	uri  string
-	vars map[string]string
+	uri            string
+	updateInterval time.Duration
+	vars           map[string]string
 }
 
 func readVolumeContext(parameters map[string]string) (*volumeContext, error) {
@@ -62,9 +65,19 @@ func readVolumeContext(parameters map[string]string) (*volumeContext, error) {
 		uri:  parameters["uri"],
 		vars: make(map[string]string, len(parameters)),
 	}
+
 	if ctx.uri == "" {
 		return nil, status.Error(codes.InvalidArgument, "uri is required")
 	}
+
+	if intervalStr := parameters["updateInterval"]; intervalStr != "" {
+		interval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("updateInterval invalid value: %v", err))
+		}
+		ctx.updateInterval = interval
+	}
+
 	for k, v := range parameters {
 		if strings.HasPrefix(k, "${") && strings.HasSuffix(k, "}") {
 			ctx.vars[k[2:len(k)-1]] = v

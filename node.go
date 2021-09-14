@@ -107,11 +107,12 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	state := updaterState{
-		DataDir:   stage,
-		URI:       volCtx.uri,
-		Username:  req.GetSecrets()["username"],
-		Password:  req.GetSecrets()["password"],
-		Variables: volCtx.vars,
+		DataDir:        stage,
+		URI:            volCtx.uri,
+		Username:       req.GetSecrets()["username"],
+		Password:       req.GetSecrets()["password"],
+		UpdateInterval: volCtx.updateInterval,
+		Variables:      volCtx.vars,
 	}
 	if err := ns.runUpdater(volumeId, state, false); err != nil {
 		log.Error().Err(err).Msg("failed to run updater")
@@ -241,15 +242,17 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 }
 
 func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bool) error {
-	log.Info().Str("volume_id", volumeId).Msg("starting updater")
+	log.Info().Str("volume_id", volumeId).Dur("updateInterval", state.UpdateInterval).Msg("starting updater")
+
 	u := updater.NewUpdater(updater.UpdaterConfig{
 		Admin: updater.AdminConfig{
 			URI:      state.URI,
 			Username: state.Username,
 			Password: state.Password,
 		},
-		DataDir:   state.DataDir,
-		Variables: state.Variables,
+		UpdateInterval: state.UpdateInterval,
+		DataDir:        state.DataDir,
+		Variables:      state.Variables,
 	})
 	if err := u.Update(); err != nil {
 		if !restore {

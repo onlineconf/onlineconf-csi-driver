@@ -27,6 +27,7 @@ See [example manifest (static)](./example.yaml) for more details.
   * `readOnly`: `true` (OnlineConf volumes are always read only)
   * `volumeAttributes`:
     * `uri` - URI of *onlineconf-admin* instance
+    * `updateInterval` - polling interval for requests to *onlineconf-admin* instance (default: "10s")
     * `${any_variable_name}` - any variables you want to interpolate into OnlineConf template values
   * `volumeHandle` - required by Kubernetes
 * `mountOptions` - optional, supported options:
@@ -46,4 +47,5 @@ See [example manifest (dynamic)](./example-dynamic.yaml) for more details.
   * `csi.storage.k8s.io/node-stage-secret-name` - a name of a secret containing `username` and `password` used to authenticate in *onlineconf-admin*. Can contain template variables `${pvc.name}`, `${pvc.namespace}`, `${pv.name}` and `${pvc.annotations['<ANNOTATION_KEY>']}`, see [Kubernetes CSI docs](https://kubernetes-csi.github.io/docs/secrets-and-credentials-storage-class.html#node-stage-secret) for more information. Recommended value is `${pvc.name}`.
   * `csi.storage.k8s.io/node-stage-secret-namespace` - a namespace of this secret. Can contain template variables `${pvc.namespace}` and `${pv.name}`. Recommended value is `${pvc.namespace}`.
   * `uri` - URI of *onlineconf-admin* instance
+  * `updateInterval` - polling interval for requests to *onlineconf-admin* instance (default: "10s")
   * `${any_variable_name}` - any variables you want to interpolate into OnlineConf template values. Can contain template variables `${pvc.name}`, `${pvc.namespace}` and `${pv.name}` (see docs on `csi.storage.k8s.io/node-stage-secret-name` for more details).

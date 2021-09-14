@@ -24,6 +24,7 @@ spec:
     readOnly: true
     volumeAttributes:
       uri: http://onlineconf.example.com
+      updateInterval: 60s
     nodeStageSecretRef:
       name: example-onlineconf-secret
 ---
