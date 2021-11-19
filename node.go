@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -185,11 +183,11 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		return nil, status.Error(codes.InvalidArgument, "incompatible VolumeId and StagingTargetPath")
 	}
 
-	if source, err := getMountSource(target); err != nil {
+	if mounts, err := readMountInfo(); err != nil {
 		log.Error().Err(err).Msg("failed to read mountinfo")
 		return nil, status.Error(codes.Internal, "failed to read mountinfo")
-	} else if source != "" {
-		if source == stage {
+	} else if mount := mounts.getByMountPoint(target); mount != nil {
+		if mounts.verifyMountSource(mount, stage) {
 			return &csi.NodePublishVolumeResponse{}, nil
 		} else {
 			return nil, status.Error(codes.InvalidArgument, "incompatible StagingTargetPath")
@@ -299,24 +297,4 @@ func (ns *nodeServer) stop() {
 	for _, ui := range ns.updaters {
 		ui.wg.Wait()
 	}
-}
-
-func getMountSource(target string) (string, error) {
-	f, err := os.Open("/proc/self/mountinfo")
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		fields := strings.Split(s.Text(), " ")
-		if len(fields) < 5 {
-			continue
-		}
-		if fields[4] == target {
-			return fields[3], nil
-		}
-	}
-	return "", s.Err()
 }
