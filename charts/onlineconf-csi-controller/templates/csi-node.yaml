@@ -1,0 +1,140 @@
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata: 
+  name: {{ include "onlineconf-csi-node.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: 
+    {{ include "onlineconf-csi-node.labels" . | nindent 4 }}
+
+spec: 
+  selector: 
+    matchLabels: 
+      {{ include "onlineconf-csi-node.selectorLabels" . | nindent 6 }}
+
+  template: 
+    metadata: 
+      labels: 
+        {{ include "onlineconf-csi-node.selectorLabels" . | nindent 8 }}
+
+    spec: 
+      containers:
+        {{- with .Values.sidecars.nodeDriverRegistrar }}
+        - name: node-driver-registrar
+          
+          image: {{ .image.repository }}:{{ .image.tag }}
+          imagePullPolicy: {{ .image.pullPolicy }}
+
+          args:
+            - --csi-address=$(ADDRESS)
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+            {{- with .extraArgs }}
+              {{- range $k, $v := . }}
+            - --{{- $k }}={{ $v -}}
+              {{end}}
+            {{- end }}
+
+          env:
+            - name: ADDRESS
+              value: "{{ $.Values.defaults.csiPath }}/{{ $.Values.defaults.csiSockName }}"
+            
+            - name: DRIVER_REG_SOCK_PATH
+              value: {{ $.Values.defaults.kubeletPath }}/plugins/{{ $.Values.defaults.csiPluginName }}/{{ $.Values.defaults.csiSockName }}
+
+          {{- with .resources | default $.Values.defaults.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .podSecurityContext | default $.Values.defaults.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          terminationMessagePath: {{ .terminationMessagePath | default $.Values.defaults.terminationMessagePath }}
+          terminationMessagePolicy: {{ .terminationMessagePolicy | default $.Values.defaults.terminationMessagePolicy }}
+
+          volumeMounts:
+            - mountPath: {{ $.Values.defaults.csiPath }}
+              name: plugin-dir
+
+            - mountPath: /registration
+              name: registration-dir
+        {{- end }}
+
+        {{- with .Values.node }}
+        - name: {{ include "onlineconf-csi-node.name" . }}
+          
+          image: {{ $.Values.image.repository }}:{{ $.Values.image.tag | default (printf "v%s" $.Chart.AppVersion) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+
+          args: 
+          - --endpoint=unix://$(ADDRESS)
+          - --node=$(NODE_NAME)"
+          - --state=/csi/state.json
+
+          env: 
+            - name: ADDRESS
+              value: "{{ $.Values.defaults.csiPath }}/{{ $.Values.defaults.csiSockName }}"
+
+            - name: CSI_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+
+          {{- with .resources | default $.Values.defaults.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .podSecurityContext | default $.Values.defaults.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          terminationMessagePath: {{ .terminationMessagePath | default $.Values.defaults.terminationMessagePath }}
+          terminationMessagePolicy: {{ .terminationMessagePolicy | default $.Values.defaults.terminationMessagePolicy }}
+
+          volumeMounts: 
+            - mountPath: {{ $.Values.defaults.csiPath }}
+              name: plugin-dir
+
+            - mountPath: {{ $.Values.defaults.kubeletPath }}/plugins/kubernetes.io/csi
+              mountPropagation: Bidirectional
+              name: csi-dir
+
+            - name: pods-dir
+              mountPath: {{ $.Values.defaults.kubeletPodPath }}
+              mountPropagation: "Bidirectional"
+        {{- end }}
+      priorityClassName: system-cluster-critical
+      hostNetwork: false
+      dnsPolicy: Default
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      
+      serviceAccount: {{ include "onlineconf-csi-node.name" . }}
+      serviceAccountName: {{ include "onlineconf-csi-node.name" . }}
+      terminationGracePeriodSeconds: 30
+
+      volumes: 
+        - name: plugin-dir
+          hostPath:
+            path: {{ .Values.defaults.kubeletPath }}/plugins/{{ .Values.defaults.csiPluginName }}
+            type: DirectoryOrCreate
+            
+        - name: csi-dir
+          hostPath: 
+            path: {{ .Values.defaults.kubeletPath }}/plugins/kubernetes.io/csi
+            type: DirectoryOrCreate
+
+        - name: pods-dir
+          hostPath: 
+            path: {{ .Values.defaults.kubeletPodPath }}
+            type: DirectoryOrCreate
+
+        - name: registration-dir
+          hostPath: 
+            path: {{ .Values.defaults.kubeletPath }}/plugins_registry
+            type: DirectoryOrCreate

@@ -1,0 +1,78 @@
+sidecars:
+  nodeDriverRegistrar:
+    image:
+      pullPolicy: IfNotPresent
+      repository: quay.io/k8scsi/csi-node-driver-registrar
+      tag: v1.2.0
+
+    extraArgs: {}
+
+    resources: {}
+    podSecurityContext: {}
+
+    # terminationMessagePath: /dev/termination-log
+    # terminationMessagePolicy: File
+
+  provisioner:
+    image:
+      pullPolicy: IfNotPresent
+      repository: quay.io/k8scsi/csi-provisioner
+      tag: v1.6.0
+
+    extraArgs:
+      volume-name-prefix: "onlineconf"
+
+    resources: {}
+    podSecurityContext: {}
+
+    # terminationMessagePath: /dev/termination-log
+    # terminationMessagePolicy: File
+
+image: 
+  pullPolicy: IfNotPresent
+  repository: vygonskayalidadocker/onlineconf-csi-driver
+  # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
+  tag: ""
+
+defaults:
+  requests:
+    # C-0050 - Resources CPU limit and request
+    cpu: 100m
+    # C-0004 - Resources memory limit and request
+    memory: 128Mi
+    ephemeral-storage: 50Mi
+  limits:
+    # C-0050 - Resources CPU limit and request
+    cpu: 1000m
+    # C-0004 - Resources memory limit and request
+    memory: 1Gi
+
+  podSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+
+  terminationMessagePath: /dev/termination-log
+  terminationMessagePolicy: File
+
+  csiPath: /csi
+  csiSockName: csi.sock
+  csiPluginName: csi.onlineconf.mail.ru
+  kubeletPath: /var/lib/kubelet
+  kubeletPodPath: /var/lib/kubelet/pods
+
+controller:
+  replicas: 1
+  extraArgs:
+    controller: true
+  resources: {}
+  podSecurityContext: {}
+
+node:
+
+  podSecurityContext: 
+    privileged: true
+    capabilities: 
+      add: ["SYS_ADMIN"]
+
+  extraArgs: {}
+  resources: {}
