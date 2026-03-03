@@ -32,6 +32,7 @@ func newNodeServer(id string, stateFile string) (*nodeServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state file: %w", err)
 	}
+
 	return &nodeServer{
 		id:       id,
 		state:    state,
@@ -107,6 +108,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	state := updaterState{
 		DataDir:        stage,
 		URI:            volCtx.uri,
+		Datacenter:     volCtx.datacenter,
 		Username:       req.GetSecrets()["username"],
 		Password:       req.GetSecrets()["password"],
 		UpdateInterval: volCtx.updateInterval,
@@ -240,7 +242,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 }
 
 func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bool) error {
-	log.Info().Str("volume_id", volumeId).Dur("updateInterval", state.UpdateInterval).Msg("starting updater")
+	log.Info().Str("volume_id", volumeId).Dur("updateInterval", state.UpdateInterval).Str("datacenter", state.Datacenter).Msg("starting updater")
 
 	u := updater.NewUpdater(updater.UpdaterConfig{
 		Admin: updater.AdminConfig{
@@ -248,6 +250,7 @@ func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bo
 			Username: state.Username,
 			Password: state.Password,
 		},
+		Datacenter:     state.Datacenter,
 		UpdateInterval: state.UpdateInterval,
 		DataDir:        state.DataDir,
 		Variables:      state.Variables,

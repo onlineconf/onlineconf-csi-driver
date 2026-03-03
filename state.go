@@ -12,6 +12,7 @@ type state struct {
 }
 
 type updaterState struct {
+	Datacenter     string
 	DataDir        string
 	URI            string
 	Username       string

@@ -9,6 +9,7 @@ parameters:
   csi.storage.k8s.io/node-stage-secret-name: ${pvc.name}
   csi.storage.k8s.io/node-stage-secret-namespace: ${pvc.namespace}
   uri: http://onlineconf.example.com
+  datacenter: example
   ${namespace}: ${pvc.namespace}
 ---
 apiVersion: v1
