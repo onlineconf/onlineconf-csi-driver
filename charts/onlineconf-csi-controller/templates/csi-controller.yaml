@@ -1,0 +1,116 @@
+kind: StatefulSet
+apiVersion: apps/v1
+metadata: 
+  name: {{ include "onlineconf-csi-controller.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: 
+    {{ include "onlineconf-csi-controller.labels" . | nindent 4 }}
+
+spec:
+  podManagementPolicy: OrderedReady
+  replicas: {{ .Values.controller.replicas }}
+
+  serviceName: {{ include "onlineconf-csi-controller.name" . }}
+
+  selector: 
+    matchLabels: 
+      {{ include "onlineconf-csi-controller.selectorLabels" . | nindent 6 }}
+
+  template: 
+    metadata: 
+      labels: 
+        {{ include "onlineconf-csi-controller.selectorLabels" . | nindent 8 }}
+
+    spec:
+      containers: 
+        {{- with .Values.sidecars.provisioner }}
+        - name: csi-provisioner
+
+          image: {{ .image.repository }}:{{ .image.tag }}
+          imagePullPolicy: {{ .image.pullPolicy }}
+
+          args: 
+            - --csi-address=$(ADDRESS)
+            - --extra-create-metadata
+            {{- with .extraArgs }}
+              {{- range $k, $v := . }}
+            - --{{- $k }}={{ $v -}}
+              {{end}}
+            {{- end }}
+
+          env:
+            - name: ADDRESS
+              value: "{{ $.Values.defaults.csiPath }}/{{ $.Values.defaults.csiSockName }}"
+
+          {{- with .resources | default $.Values.defaults.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .podSecurityContext | default $.Values.defaults.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          terminationMessagePath: {{ .terminationMessagePath | default $.Values.defaults.terminationMessagePath }}
+          terminationMessagePolicy: {{ .terminationMessagePolicy | default $.Values.defaults.terminationMessagePolicy }}
+
+          volumeMounts:
+            - name: socket-dir
+              mountPath: {{ $.Values.defaults.csiPath }}
+        {{- end }}
+
+        {{- with .Values.controller }}
+        - name: csi-controller
+
+          image: {{ $.Values.image.repository }}:{{ $.Values.image.tag | default (printf "v%s" $.Chart.AppVersion) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+
+          args: 
+            - --endpoint=unix://$(ADDRESS)
+            {{- with .extraArgs }}
+              {{- range $k, $v := . }}
+            - --{{- $k }}={{ $v -}}
+              {{end}}
+            {{- end }}
+
+          env: 
+            - name: ADDRESS
+              value: "{{ $.Values.defaults.csiPath }}/{{ $.Values.defaults.csiSockName }}"
+
+          {{- with .resources | default $.Values.defaults.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .podSecurityContext | default $.Values.defaults.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - name: socket-dir
+              mountPath: {{ $.Values.defaults.csiPath }}
+        {{- end }}
+
+      priorityClassName: system-cluster-critical
+      hostNetwork: false
+      dnsPolicy: Default
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      
+      serviceAccount: {{ include "onlineconf-csi-controller.name" . }}
+      serviceAccountName: {{ include "onlineconf-csi-controller.name" . }}
+      terminationGracePeriodSeconds: 30
+
+      tolerations:
+        - operator: Exists
+
+      volumes: 
+        - name: socket-dir
+          emptyDir: {}
+
+        - name: state-dir
+          hostPath: 
+            path: /var/lib/onlineconf-csi-controller
+            type: DirectoryOrCreate
