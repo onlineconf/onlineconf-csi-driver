@@ -8,6 +8,10 @@ mountOptions:
 parameters:
   csi.storage.k8s.io/node-stage-secret-name: ${pvc.name}
   csi.storage.k8s.io/node-stage-secret-namespace: ${pvc.namespace}
+  # the same secret on publish lets a rotated secret take effect as soon
+  # as the next pod using the volume starts on the node
+  csi.storage.k8s.io/node-publish-secret-name: ${pvc.name}
+  csi.storage.k8s.io/node-publish-secret-namespace: ${pvc.namespace}
   uri: http://onlineconf.example.com
   datacenter: example
   ${namespace}: ${pvc.namespace}

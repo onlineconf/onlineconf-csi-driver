@@ -83,6 +83,12 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 
 	if us, ok := ns.state.Updaters[volumeId]; ok {
 		if us.DataDir == stage {
+			// kubelet re-stages an already staged volume after restarts,
+			// delivering freshly read secrets — the one chance a volume gets
+			// to pick up rotated credentials without being fully unstaged
+			if err := ns.maybeRotateCredentials(volumeId, req.GetSecrets()); err != nil {
+				return nil, err
+			}
 			return &csi.NodeStageVolumeResponse{}, nil
 		} else {
 			return nil, status.Error(codes.InvalidArgument, "volume is already staged to another StagingTargetPath")
@@ -142,11 +148,7 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	if ui := ns.updaters[stage]; ui != nil {
-		log.Info().Str("volume_id", volumeId).Msg("stopping updater")
-		ui.updater.Stop()
-		ui.wg.Wait()
-	}
+	ns.stopUpdater(volumeId, stage)
 
 	if err := os.RemoveAll(stage); err != nil {
 		log.Error().Err(err).Msg("failed to remove StagingTargetDir")
@@ -183,6 +185,13 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		return nil, status.Error(codes.NotFound, "unknown VolumeId")
 	} else if us.DataDir != stage {
 		return nil, status.Error(codes.InvalidArgument, "incompatible VolumeId and StagingTargetPath")
+	}
+
+	// every pod publish may carry nodePublishSecretRef secrets: pick up
+	// rotated credentials as soon as a new pod arrives instead of waiting
+	// for a restage
+	if err := ns.maybeRotateCredentials(volumeId, req.GetSecrets()); err != nil {
+		return nil, err
 	}
 
 	if mounts, err := readMountInfo(); err != nil {
@@ -239,6 +248,63 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	}
 
 	return &csi.NodeUnpublishVolumeResponse{}, nil
+}
+
+// credentialsChanged reports whether the delivered secrets carry different
+// credentials than the volume's updater was started with. A call without any
+// secret attached (no nodeStageSecretRef / nodePublishSecretRef on this code
+// path) yields an empty map and means "nothing to compare", not "empty
+// credentials".
+func credentialsChanged(us updaterState, secrets map[string]string) bool {
+	_, hasUsername := secrets["username"]
+	_, hasPassword := secrets["password"]
+	if !hasUsername && !hasPassword {
+		return false
+	}
+	return secrets["username"] != us.Username || secrets["password"] != us.Password
+}
+
+// maybeRotateCredentials restarts the volume's updater when kubelet delivers
+// secrets that differ from the ones it was started with — the Kubernetes
+// secret was rotated. Called under ns.m for a volume already staged at its
+// recorded DataDir; the served files are untouched, so running pods see no
+// interruption. If the new credentials fail their first fetch, the previous
+// updater is brought back (best effort: it keeps serving the already fetched
+// config even if the old credentials are dead by now) and the state keeps
+// the previous credentials, so the next stage or publish call retries the
+// rotation.
+func (ns *nodeServer) maybeRotateCredentials(volumeId string, secrets map[string]string) error {
+	us, ok := ns.state.Updaters[volumeId]
+	if !ok || !credentialsChanged(us, secrets) {
+		return nil
+	}
+	log.Info().Str("volume_id", volumeId).Msg("rotating credentials")
+
+	ns.stopUpdater(volumeId, us.DataDir)
+
+	fresh := us
+	fresh.Username = secrets["username"]
+	fresh.Password = secrets["password"]
+	if err := ns.runUpdater(volumeId, fresh, false); err != nil {
+		log.Error().Err(err).Str("volume_id", volumeId).Msg("failed to rotate credentials")
+		if restoreErr := ns.runUpdater(volumeId, us, true); restoreErr != nil {
+			log.Error().Err(restoreErr).Str("volume_id", volumeId).Msg("failed to restart the updater with the previous credentials")
+		}
+		return status.Error(codes.Internal, fmt.Sprintf("failed to fetch config with the new credentials: %v", err))
+	}
+	ns.state.Updaters[volumeId] = fresh
+	ns.state.save()
+	return nil
+}
+
+// stopUpdater stops the updater serving dataDir and waits for it to finish.
+// Must be called under ns.m.
+func (ns *nodeServer) stopUpdater(volumeId, dataDir string) {
+	if ui := ns.updaters[dataDir]; ui != nil {
+		log.Info().Str("volume_id", volumeId).Msg("stopping updater")
+		ui.updater.Stop()
+		ui.wg.Wait()
+	}
 }
 
 func (ns *nodeServer) runUpdater(volumeId string, state updaterState, restore bool) error {

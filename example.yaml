@@ -28,6 +28,10 @@ spec:
       updateInterval: 60s
     nodeStageSecretRef:
       name: example-onlineconf-secret
+    # the same secret on publish lets a rotated secret take effect as soon
+    # as the next pod using the volume starts on the node
+    nodePublishSecretRef:
+      name: example-onlineconf-secret
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
