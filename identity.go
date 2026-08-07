@@ -6,7 +6,9 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 )
 
-type identityServer struct{}
+type identityServer struct {
+	csi.UnimplementedIdentityServer
+}
 
 func newIdentityServer() *identityServer {
 	return &identityServer{}
